@@ -1,3 +1,5 @@
+
+
 Collision ball;
 ArrayList<Drop> rain = new ArrayList<Drop>();
 void setup() {
@@ -5,19 +7,18 @@ void setup() {
     background(255);
     ball = new Collision(width/2, width/2);
 
-    
+    rainLine();
 }
-boolean pause = false;
 void draw() {
     background(255);
-    ball.display();
-
+    // fill(255, 50);
+    // rect(0, 0, width, height);
     for (Drop drop : rain){
         drop.move();
-        drop.collision(ball);
+        drop.collision();
         drop.display();
     }
-
+    ball.display();
     if (frameCount % 20 == 0){
         rainLine();
     }
@@ -32,15 +33,25 @@ void rainLine(){
 
 class Collision {
     float radius = 100;
-    float segments = 200;
+    float segments = 300;
     ArrayList<PVector> pts = new ArrayList<PVector>();
 
     PVector loc;
     public Collision(float x, float y){
         loc = new PVector(x, y);
+        createSegs();
     }
 
-    boolean collide(PVector pt){
+    void createSegs(){
+        for (int i = 0; i < segments; i++){
+            PVector pt = new PVector(0, radius);
+            pt.rotate(2*PI*float(i)/segments);
+            pt = PVector.add(pt, loc);
+            pts.add(pt);
+        }
+    }
+
+    boolean collides(PVector pt){
         float dist = PVector.sub(pt, loc).mag();
         if (dist < radius){
             return true;
@@ -48,31 +59,45 @@ class Collision {
         return false;
     }
 
-    PVector collisionpt(Verlet ver){
-        PVector direction = PVector.sub(ver.prev, ver.curr);
-        direction.normalize().setMag(0.01);
+    Verlet dropletpull(Verlet ver){
+        PVector dir = PVector.sub(ver.curr, loc);
+        if (dir.mag() < radius + 3){
+            dir.normalize().setMag(0.001);
+            ver.prev = PVector.add(ver.prev, dir);
+            return ver;
+        } 
+        return ver;
+        
+    }
 
-        PVector collpt = ver.curr.copy();
-        float dist = PVector.sub(collpt, loc).mag();
+    PVector collisionpoint(Verlet ver){
+        PVector normaldir = PVector.sub(ver.prev, ver.curr);
+        normaldir.normalize();
+        normaldir.setMag(0.01);
+        PVector pt = ver.curr.copy();
+        float dist = PVector.sub(pt, loc).mag();
         while (dist < radius){
-            collpt = PVector.add(collpt, direction);
-            dist = PVector.sub(collpt, loc).mag();
+            pt = PVector.add(pt, normaldir);
+            dist = PVector.sub(pt, loc).mag();
         }
-        return collpt;
+        return pt;
     }
 
-    PVector tangent(PVector pt) {
-        PVector tan = PVector.sub(pt, loc);
-        tan.rotate(PI/2);
-        return tan;
-    }
-
-    float angle(PVector pt){
-        return PVector.angleBetween(pt, loc);
+    PVector collisionresponse(Verlet ver) { //returns new curr and prev difference
+        PVector speed = PVector.sub(ver.curr, ver.prev);
+        PVector flipover = PVector.sub(ver.curr, loc);
+        flipover.normalize();
+        float dot = speed.dot(flipover) * 2;
+        flipover.mult(dot);
+        PVector reflection = PVector.sub(speed, flipover);
+        return reflection;
     }
 
     void display(){
-        ellipse(loc.x, loc.y, radius*2, radius*2);
+        // ellipse(loc.x, loc.y, radius*2, radius*2);
+        for (PVector pt : pts){
+            point(pt.x, pt.y);
+        }
     }
 }
 
@@ -92,66 +117,49 @@ class Stack {
 
 class Drop {
     Verlet loc;
-    float bounce = 0.3;
+    float bounce = 0.1;
     boolean finished = false;
-    Stack stack = new Stack(8);
-
+    Stack stack;
+    boolean bounced = false;
+    int stacksize;
     public Drop(float x, float y) {
         loc = new Verlet(x, y);
+        stacksize = int(random(5, 15));
+        stack = new Stack(stacksize);
+        bounce = random(0.1, 0.2);
     }
 
     void display(){
+        fill(0);
+        ellipse(loc.curr.x, loc.curr.y, 3, 3);
+        // noFill();
+        // strokeWeight(2);
+        // beginShape();
+        // for (PVector pt : stack.pts){
+        //     curveVertex(pt.x, pt.y);
+        // }
+        // endShape();
+    }
 
-        stack.push(loc.curr.copy());
-
-        strokeWeight(1);
-        noFill();
-        beginShape();
-        for (PVector pt : stack.pts){
-            curveVertex(pt.x, pt.y);
-        }
-        endShape();
+    void collision(){
+        if (ball.collides(loc.curr)){
+            PVector reflection = ball.collisionresponse(loc);
+            reflection.setMag(reflection.mag()*bounce);
+            PVector collpt = ball.collisionpoint(loc);
+            loc.curr = collpt;
+            loc.prev = PVector.sub(collpt, reflection);
+            bounced = true;
+        } 
+        loc = ball.dropletpull(loc);
+        stack.push(loc.curr);
     }
 
     void move(){
-        if (!finished){
-            loc.move();
-        } 
         
-    }
-
-    void collision(Collision col){
-        if (col.collide(loc.curr) && !finished){
-            PVector collisionpt = col.collisionpt(loc);
-            PVector tan = col.tangent(collisionpt);
-            float angle = tan.heading();
-            PVector currdiff = PVector.sub(collisionpt, loc.curr);
-            PVector prevdiff = PVector.sub(loc.prev, collisionpt);
-            if (loc.speed() > 1){
-                currdiff.setMag(currdiff.mag()*bounce);
-                prevdiff.setMag(prevdiff.mag()*bounce);
-            } else {
-                finished = true;
-            }
-            
-            float currangle = PI - (angle*2);
-            if (loc.curr.x > width/2){
-                currdiff.rotate(angle);
-                prevdiff.rotate(-currangle);
-            } else {
-                currdiff.rotate(-angle);
-                prevdiff.rotate(-currangle);
-            }
-            
-            loc.curr = PVector.add(currdiff, collisionpt);
-            loc.prev = PVector.add(prevdiff, collisionpt);
-        } else if (finished) {
-            if (col.angle(loc.curr) > 30){
-                loc.prev.y += 1;
-            }
-        }
+        loc.move();
     }
 }
+
 
 class Verlet {
     PVector curr;
@@ -168,7 +176,7 @@ class Verlet {
         prev = curr.copy();
         curr = PVector.add(curr, diff);
         curr.y += gravity;
-        curr.x -= wind;
+        // curr.x -= wind;
     }
 
     float speed(){
